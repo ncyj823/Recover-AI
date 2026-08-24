@@ -42,12 +42,20 @@ async def run_batch(transactions: list[dict]) -> dict:
 
     results = []
     for txn in transactions:
-        final_state = await run_recovery(txn)
-        results.append({
-            "transaction_id": txn["transaction_id"],
-            "amount": txn["amount"],
-            "action_result": final_state.get("action_result"),
-        })
+        try:
+            final_state = await run_recovery(txn)
+            results.append({
+                "transaction_id": txn["transaction_id"],
+                "amount": txn["amount"],
+                "action_result": final_state.get("action_result"),
+            })
+        except Exception as e:
+            print(f"[batch] Error processing transaction {txn.get('transaction_id')}: {e}")
+            results.append({
+                "transaction_id": txn["transaction_id"],
+                "amount": txn["amount"],
+                "action_result": {"status": "skipped", "reason": f"error: {type(e).__name__}"},
+            })
 
     total_at_risk = sum(t["amount"] for t in transactions)
     targeted = [r for r in results if (r["action_result"] or {}).get("status") not in {"skipped", None}]

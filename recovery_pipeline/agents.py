@@ -23,6 +23,8 @@ import os
 import re
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from groq import APIConnectionError, APITimeoutError, RateLimitError
 
 from state import RecoveryState
 
@@ -54,11 +56,26 @@ def _parse_json_response(raw: str, agent_name: str) -> dict:
         }
 
 
+# Retry policy shared by all 3 agents: retries transient network/rate-limit
+# errors (NOT auth or validation errors, which won't fix themselves) up to
+# 3 times with exponential backoff (2s, 4s, 8s). This is what turns a
+# single dropped connection into a recovered call instead of a crashed
+# batch run — important since batch.py processes many transactions in one
+# long-running process where a momentary network hiccup shouldn't kill
+# everything after it.
+llm_retry = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((APIConnectionError, APITimeoutError, RateLimitError)),
+    reraise=True,
+)
+
+
 def _txn_context(state: RecoveryState) -> str:
     """Build a compact text block of the transaction for prompting."""
     return (
         f"Transaction ID: {state['transaction_id']}\n"
-        f"Amount: ₹{state['amount']}\n"
+        f"Amount: INR {state['amount']}\n"
         f"Payment Method: {state['payment_method']}\n"
         f"Failure Reason Code: {state['failure_reason_code']}\n"
         f"Merchant Category: {state['merchant_category']}\n"
@@ -97,8 +114,15 @@ async def diagnosis_agent(state: RecoveryState) -> dict:
         SystemMessage(content=DIAGNOSIS_SYSTEM_PROMPT),
         HumanMessage(content=f"Diagnose this failed transaction:\n\n{_txn_context(state)}"),
     ]
-    response = await llm.ainvoke(messages)
-    finding = _parse_json_response(response.content, "diagnosis")
+    try:
+        response = await llm_retry(llm.ainvoke)(messages)
+        finding = _parse_json_response(response.content, "diagnosis")
+    except (APIConnectionError, APITimeoutError, RateLimitError) as e:
+        # After 3 retries, still failing — don't crash the whole batch over
+        # one transaction. Mark it low-confidence/unrecoverable so aggregate()
+        # skips it safely, and this failure is visible in the audit trail.
+        finding = {"agent": "diagnosis", "root_cause": "unknown", "recoverable": False,
+                   "confidence": "error", "summary": f"LLM call failed after retries: {e}"}
     return {"findings": [finding]}
 
 
@@ -136,8 +160,15 @@ async def channel_agent(state: RecoveryState) -> dict:
         SystemMessage(content=CHANNEL_SYSTEM_PROMPT),
         HumanMessage(content=f"Pick a channel for this failed transaction:\n\n{_txn_context(state)}"),
     ]
-    response = await llm.ainvoke(messages)
-    finding = _parse_json_response(response.content, "channel")
+    try:
+        response = await llm_retry(llm.ainvoke)(messages)
+        finding = _parse_json_response(response.content, "channel")
+    except (APIConnectionError, APITimeoutError, RateLimitError) as e:
+        # Safe fallback — SMS is the most universally deliverable channel,
+        # so defaulting here doesn't block recovery, it just picks a
+        # conservative default when the agent itself couldn't be reached.
+        finding = {"agent": "channel", "channel": "sms", "send_delay_minutes": 0,
+                   "confidence": "error", "summary": f"LLM call failed after retries, defaulted to SMS: {e}"}
     return {"findings": [finding]}
 
 
@@ -171,6 +202,12 @@ async def offer_agent(state: RecoveryState) -> dict:
         SystemMessage(content=OFFER_SYSTEM_PROMPT),
         HumanMessage(content=f"Decide on offer strategy for this failed transaction:\n\n{_txn_context(state)}"),
     ]
-    response = await llm.ainvoke(messages)
-    finding = _parse_json_response(response.content, "offer")
+    try:
+        response = await llm_retry(llm.ainvoke)(messages)
+        finding = _parse_json_response(response.content, "offer")
+    except (APIConnectionError, APITimeoutError, RateLimitError) as e:
+        # Safe fallback — no discount is the conservative default; we'd
+        # rather under-offer than have a broken agent call over-discount.
+        finding = {"agent": "offer", "needs_incentive": False, "discount_percent": 0,
+                   "confidence": "error", "summary": f"LLM call failed after retries, defaulted to no discount: {e}"}
     return {"findings": [finding]}

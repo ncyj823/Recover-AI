@@ -50,7 +50,7 @@ async def fetch_transaction_context(state: RecoveryState) -> dict:
     and so a future version can plug in a real DB/webhook lookup here
     without touching the rest of the graph."""
     print(f"[fetch] Loaded transaction {state['transaction_id']} "
-          f"(₹{state['amount']}, {state['payment_method']}, {state['failure_reason_code']})")
+          f"(INR {state['amount']}, {state['payment_method']}, {state['failure_reason_code']})")
     return {"findings": []}
 
 
@@ -64,9 +64,9 @@ def _build_message(state: RecoveryState, offer_finding: dict, retry_link: str) -
     if offer_finding.get("needs_incentive"):
         pct = offer_finding.get("discount_percent", 0)
         final = amount * (1 - pct / 100)
-        return (f"Your payment of ₹{amount:.2f} didn't go through. "
-                f"Complete it now for just ₹{final:.2f} ({pct}% off): {retry_link}")
-    return f"Your payment of ₹{amount:.2f} didn't go through. Retry here: {retry_link}"
+        return (f"Your payment of INR {amount:.2f} didn't go through. "
+                f"Complete it now for just INR {final:.2f} ({pct}% off): {retry_link}")
+    return f"Your payment of INR {amount:.2f} didn't go through. Retry here: {retry_link}"
 
 
 async def aggregate(state: RecoveryState) -> dict:

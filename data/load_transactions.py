@@ -20,7 +20,7 @@ import os
 import random
 import uuid
 
-CSV_PATH = os.path.join(os.path.dirname(__file__), "upi_transactions.csv")
+CSV_PATH = os.path.join(os.path.dirname(__file__), "transactions.csv")
 
 FAILURE_CODES = ["TIMEOUT", "INSUFFICIENT_FUNDS", "BANK_DECLINE", "OTP_FAILURE", "GATEWAY_ERROR"]
 PAYMENT_METHODS = ["UPI", "Credit Card", "Debit Card", "Net Banking"]
@@ -53,12 +53,20 @@ def load_mock_transactions(n: int = 10) -> list[dict]:
 
 
 def load_csv_transactions(limit: int | None = None) -> list[dict]:
-    """Load and filter failed transactions from the Kaggle CSV, if present.
+    """Load and filter failed transactions from the Kaggle UPI dataset.
 
-    NOTE: exact column names depend on the dataset version — check the
-    header row after downloading and adjust FIELD_MAP below if needed.
-    This is written defensively to handle a few common column-naming
-    variants seen across UPI transaction datasets on Kaggle.
+    Confirmed header row for this dataset (devildyno/upi-payment-transactions-dataset):
+        Transaction ID, Timestamp, Sender Name, Sender UPI ID, Receiver Name,
+        Receiver UPI ID, Amount (INR), Status
+
+    This dataset has NO explicit failure-reason-code or customer-history
+    columns, and every transaction is UPI (no payment_method variety), so:
+      - payment_method is hardcoded to "UPI" for every row
+      - failure_reason_code is randomly assigned from FAILURE_CODES (the
+        dataset doesn't tell us *why* it failed, only *that* it failed)
+      - customer_id uses "Sender UPI ID" (a stable per-sender identifier)
+      - customer_history is synthesized (randomized) since the dataset
+        doesn't track repeat-customer behavior
     """
     if not os.path.exists(CSV_PATH):
         raise FileNotFoundError(
@@ -70,33 +78,29 @@ def load_csv_transactions(limit: int | None = None) -> list[dict]:
     transactions = []
     with open(CSV_PATH, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        headers = {h.lower().strip(): h for h in reader.fieldnames or []}
-
-        def col(*candidates):
-            for c in candidates:
-                if c in headers:
-                    return headers[c]
-            return None
-
-        status_col = col("status", "transaction_status", "txn_status")
-        amount_col = col("amount", "transaction_amount", "txn_amount")
-        method_col = col("payment_method", "mode", "transaction_type")
-        customer_col = col("customer_id", "user_id", "sender")
 
         for row in reader:
-            status = (row.get(status_col, "") or "").strip().lower() if status_col else ""
+            status = (row.get("Status", "") or "").strip().lower()
             if status not in {"failed", "failure", "declined"}:
                 continue
 
+            try:
+                amount = float(row.get("Amount (INR)", 0) or 0)
+            except ValueError:
+                amount = 0.0
+
+            sender_upi = row.get("Sender UPI ID", "").strip()
             transactions.append({
-                "transaction_id": row.get("transaction_id") or f"TXN{uuid.uuid4().hex[:8]}",
-                "customer_id": row.get(customer_col, f"CUST{uuid.uuid4().hex[:6]}") if customer_col else f"CUST{uuid.uuid4().hex[:6]}",
-                "amount": float(row.get(amount_col, 0) or 0) if amount_col else 0.0,
-                "payment_method": row.get(method_col, "UPI") if method_col else "UPI",
-                "failure_reason_code": random.choice(FAILURE_CODES),  # dataset may not have this — infer/randomize
+                "transaction_id": row.get("Transaction ID") or f"TXN{uuid.uuid4().hex[:8]}",
+                "customer_id": sender_upi or f"CUST{uuid.uuid4().hex[:6]}",
+                "amount": amount,
+                "payment_method": "UPI",
+                "failure_reason_code": random.choice(FAILURE_CODES),
                 "merchant_category": random.choice(MERCHANT_CATEGORIES),
-                "customer_history": {"past_orders": random.randint(0, 20),
-                                      "past_recovery_response_rate": round(random.uniform(0.1, 0.9), 2)},
+                "customer_history": {
+                    "past_orders": random.randint(0, 20),
+                    "past_recovery_response_rate": round(random.uniform(0.1, 0.9), 2),
+                },
             })
             if limit and len(transactions) >= limit:
                 break
