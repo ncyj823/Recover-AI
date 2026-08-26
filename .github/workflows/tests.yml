@@ -1,0 +1,31 @@
+name: Tests
+
+# Runs the compliance test suite on every push and pull request to main.
+# Deliberately scoped to test_compliance.py — this is the module gating
+# every money-relevant action, so it's the one that must be provably
+# correct on every change, not just eyeballed once.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio
+
+      - name: Run compliance test suite
+        run: python -m pytest tests/ -v

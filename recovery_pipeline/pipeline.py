@@ -34,8 +34,11 @@ from agents import diagnosis_agent, channel_agent, offer_agent
 from action_client import generate_retry_link, dispatch
 import audit
 import compliance
+from logging_config import get_logger
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -49,8 +52,9 @@ async def fetch_transaction_context(state: RecoveryState) -> dict:
     This node exists so the graph shape mirrors Reviewly (fetch → fan-out)
     and so a future version can plug in a real DB/webhook lookup here
     without touching the rest of the graph."""
-    print(f"[fetch] Loaded transaction {state['transaction_id']} "
-          f"(INR {state['amount']}, {state['payment_method']}, {state['failure_reason_code']})")
+    logger.info("Loaded transaction %s (₹%s, %s, %s)",
+                state['transaction_id'], state['amount'],
+                state['payment_method'], state['failure_reason_code'])
     return {"findings": []}
 
 
@@ -64,9 +68,9 @@ def _build_message(state: RecoveryState, offer_finding: dict, retry_link: str) -
     if offer_finding.get("needs_incentive"):
         pct = offer_finding.get("discount_percent", 0)
         final = amount * (1 - pct / 100)
-        return (f"Your payment of INR {amount:.2f} didn't go through. "
-                f"Complete it now for just INR {final:.2f} ({pct}% off): {retry_link}")
-    return f"Your payment of INR {amount:.2f} didn't go through. Retry here: {retry_link}"
+        return (f"Your payment of ₹{amount:.2f} didn't go through. "
+                f"Complete it now for just ₹{final:.2f} ({pct}% off): {retry_link}")
+    return f"Your payment of ₹{amount:.2f} didn't go through. Retry here: {retry_link}"
 
 
 async def aggregate(state: RecoveryState) -> dict:
@@ -83,10 +87,9 @@ async def aggregate(state: RecoveryState) -> dict:
     audit.log_channel_decision(txn_id, channel)
     audit.log_offer_decision(txn_id, offer)
 
-    print(f"[aggregate] root_cause={diagnosis.get('root_cause')} "
-          f"recoverable={diagnosis.get('recoverable')} "
-          f"channel={channel.get('channel')} "
-          f"needs_incentive={offer.get('needs_incentive')}")
+    logger.info("root_cause=%s recoverable=%s channel=%s needs_incentive=%s",
+                diagnosis.get('root_cause'), diagnosis.get('recoverable'),
+                channel.get('channel'), offer.get('needs_incentive'))
 
     if diagnosis.get("recoverable") is False:
         reason = diagnosis.get("summary", "not recoverable")
@@ -98,6 +101,7 @@ async def aggregate(state: RecoveryState) -> dict:
     # gates the action, doesn't just log it after the fact.
     allowed, block_reason = compliance.check(txn_id, state["customer_id"])
     if not allowed:
+        logger.warning("Stopping rule triggered for %s: %s", txn_id, block_reason)
         audit.log_stopping_rule_triggered(txn_id, state["customer_id"], block_reason)
         plan = {"skip": True, "reason": f"stopping_rule:{block_reason}"}
         audit.log_recovery_plan(txn_id, plan)
@@ -134,12 +138,12 @@ async def execute_recovery(state: RecoveryState) -> dict:
     plan = state.get("recovery_plan", {}) or {}
 
     if plan.get("skip"):
-        print(f"[execute] Skipping — {plan.get('reason')}")
+        logger.warning("Skipping %s — %s", txn_id, plan.get('reason'))
         audit.log_skipped(txn_id, plan.get("reason", "unknown"))
         return {"action_result": {"status": "skipped", "reason": plan.get("reason")}}
 
     delay = plan.get("send_delay_minutes", 0)
-    print(f"[execute] Dispatching via {plan['channel']} (delay={delay}min)...")
+    logger.info("Dispatching %s via %s (delay=%smin)...", txn_id, plan['channel'], delay)
 
     # NOTE: real delay would be handled by the Redis/RQ worker scheduling this
     # job for later — see worker_service/worker.py. Here we send immediately
@@ -154,7 +158,7 @@ async def execute_recovery(state: RecoveryState) -> dict:
     compliance.record_action(txn_id, state["customer_id"])
     audit.log_action_taken(txn_id, state["customer_id"], result)
 
-    print(f"[execute] [OK] Sent via {result['channel']}: {result['message_id']}")
+    logger.info("Sent %s via %s: %s", txn_id, result['channel'], result['message_id'])
     return {"action_result": result}
 
 
@@ -215,6 +219,7 @@ async def run_recovery(transaction: dict):
     print(f"\n{'='*50}")
     print(f"  RecoverAI — recovering {transaction['transaction_id']}")
     print(f"{'='*50}\n")
+    logger.info("Starting recovery for %s", transaction['transaction_id'])
 
     start = asyncio.get_event_loop().time()
     final_state = await graph.ainvoke(initial_state)
@@ -224,6 +229,8 @@ async def run_recovery(transaction: dict):
     print(f"  Done in {elapsed:.1f}s")
     print(f"  Result: {json.dumps(final_state.get('action_result'), indent=2)}")
     print(f"{'='*50}\n")
+    logger.info("Completed %s in %.1fs — status=%s", transaction['transaction_id'],
+                elapsed, (final_state.get('action_result') or {}).get('status'))
 
     return final_state
 

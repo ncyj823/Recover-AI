@@ -27,6 +27,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from groq import APIConnectionError, APITimeoutError, RateLimitError
 
 from state import RecoveryState
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Shared LLM client — same as Reviewly, temperature=0 for consistent output.
@@ -37,7 +40,7 @@ def _get_llm() -> ChatGroq:
     if not api_key:
         raise RuntimeError("GROQ_API_KEY not set. Add it to your .env file.")
     return ChatGroq(
-        model="openai/gpt-oss-120b",
+        model="llama-3.3-70b-versatile",
         temperature=0,
         groq_api_key=api_key,
     )
@@ -75,7 +78,7 @@ def _txn_context(state: RecoveryState) -> str:
     """Build a compact text block of the transaction for prompting."""
     return (
         f"Transaction ID: {state['transaction_id']}\n"
-        f"Amount: INR {state['amount']}\n"
+        f"Amount: ₹{state['amount']}\n"
         f"Payment Method: {state['payment_method']}\n"
         f"Failure Reason Code: {state['failure_reason_code']}\n"
         f"Merchant Category: {state['merchant_category']}\n"
@@ -121,6 +124,7 @@ async def diagnosis_agent(state: RecoveryState) -> dict:
         # After 3 retries, still failing — don't crash the whole batch over
         # one transaction. Mark it low-confidence/unrecoverable so aggregate()
         # skips it safely, and this failure is visible in the audit trail.
+        logger.error("diagnosis_agent failed after retries for %s: %s", state['transaction_id'], e)
         finding = {"agent": "diagnosis", "root_cause": "unknown", "recoverable": False,
                    "confidence": "error", "summary": f"LLM call failed after retries: {e}"}
     return {"findings": [finding]}
@@ -167,6 +171,7 @@ async def channel_agent(state: RecoveryState) -> dict:
         # Safe fallback — SMS is the most universally deliverable channel,
         # so defaulting here doesn't block recovery, it just picks a
         # conservative default when the agent itself couldn't be reached.
+        logger.error("channel_agent failed after retries for %s: %s", state['transaction_id'], e)
         finding = {"agent": "channel", "channel": "sms", "send_delay_minutes": 0,
                    "confidence": "error", "summary": f"LLM call failed after retries, defaulted to SMS: {e}"}
     return {"findings": [finding]}
@@ -208,6 +213,7 @@ async def offer_agent(state: RecoveryState) -> dict:
     except (APIConnectionError, APITimeoutError, RateLimitError) as e:
         # Safe fallback — no discount is the conservative default; we'd
         # rather under-offer than have a broken agent call over-discount.
+        logger.error("offer_agent failed after retries for %s: %s", state['transaction_id'], e)
         finding = {"agent": "offer", "needs_incentive": False, "discount_percent": 0,
                    "confidence": "error", "summary": f"LLM call failed after retries, defaulted to no discount: {e}"}
     return {"findings": [finding]}
