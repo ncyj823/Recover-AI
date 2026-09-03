@@ -69,6 +69,18 @@ def log_stopping_rule_triggered(transaction_id: str, customer_id: str, rule: str
     })
 
 
+def log_escalation(transaction_id: str, customer_id: str, reason: str) -> None:
+    """Logged when an agent escalates a transaction for manual human
+    follow-up — e.g. when automated recovery has failed, the agent lacks
+    confidence, or the case requires judgement beyond its scope."""
+    _write({
+        "event": "escalated_to_human",
+        "transaction_id": transaction_id,
+        "customer_id": customer_id,
+        "reason": reason,
+    })
+
+
 def read_all() -> list[dict]:
     """Read the full audit log — used by the batch report to compute metrics."""
     if not os.path.exists(AUDIT_LOG_PATH):

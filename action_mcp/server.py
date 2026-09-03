@@ -173,6 +173,62 @@ async def recovery_send_message(params: SendMessageInput) -> str:
     return json.dumps(result, default=str)
 
 
+# ---------------------------------------------------------------------------
+# Tool 4: recovery_escalate_to_human (DESTRUCTIVE — writes an audit entry
+# marking a transaction for human review when the agent can't resolve it)
+# ---------------------------------------------------------------------------
+
+class EscalateToHumanInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    transaction_id: str = Field(..., description="Transaction that needs human attention", min_length=1)
+    customer_id: str = Field(..., description="Customer associated with the transaction", min_length=1)
+    reason: str = Field(
+        ...,
+        description="Why the agent is escalating — e.g. 'max retries exhausted', "
+                    "'customer dispute detected', 'high-value transaction needs manual review'",
+        min_length=1,
+        max_length=500,
+    )
+
+
+@mcp.tool(
+    name="recovery_escalate_to_human",
+    annotations={
+        "title": "Escalate a transaction to human review",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def recovery_escalate_to_human(params: EscalateToHumanInput) -> str:
+    """Mark a transaction for manual human follow-up when the agent cannot
+    or should not resolve it autonomously.
+
+    Use this when:
+    - All automated recovery attempts have been exhausted (max_attempts_reached)
+    - The customer has disputed the charge or expressed frustration
+    - The transaction amount is unusually high and warrants human judgement
+    - The failure mode is one the agent doesn't have a playbook for
+
+    This is the "bounded" part of RecoverAI — agents are expected to know
+    their limits and hand off rather than keep retrying indefinitely.
+
+    Args:
+        params (EscalateToHumanInput): transaction_id, customer_id, reason
+
+    Returns:
+        str: JSON {"escalated": true, "transaction_id": str, "reason": str}
+    """
+    audit.log_escalation(params.transaction_id, params.customer_id, params.reason)
+    return json.dumps({
+        "escalated": True,
+        "transaction_id": params.transaction_id,
+        "reason": params.reason,
+    })
+
+
 if __name__ == "__main__":
     # stdio transport — launched as a subprocess by an MCP client.
     mcp.run()
