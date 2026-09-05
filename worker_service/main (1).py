@@ -10,18 +10,22 @@ roles in one process. In a real production deployment at scale, you'd
 split these back into separate webhook and worker processes (as the
 docker-compose.yml in this repo still does for local development) so
 webhook traffic and job processing can scale independently.
-
-Run locally (webhook only, matching docker-compose):
-    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-
-Trigger a recovery:
-    curl -X POST localhost:8000/events/payment-failed -H "Content-Type: application/json" \
-      -d '{"transaction_id":"TXN1","customer_id":"CUST1","amount":1499,"payment_method":"UPI","failure_reason_code":"TIMEOUT"}'
 """
 
 import os
 import sys
 import threading
+
+# Explicitly add this file's own directory to sys.path BEFORE importing
+# worker.py. This is necessary because how Python resolves `import worker`
+# depends on how uvicorn was invoked: running with --reload (as local
+# docker-compose does) happens to add this directory to sys.path as a
+# side effect of the reloader subprocess, but running the plain module
+# path `uvicorn worker_service.main:app` (as Render's production CMD
+# does, with no --reload) does NOT. Making this explicit removes that
+# invocation-dependent behavior entirely — the import now works the same
+# way everywhere.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import redis
 from dotenv import load_dotenv
@@ -43,20 +47,11 @@ redis_conn = redis.Redis(
 )
 recovery_queue = Queue("recoveries", connection=redis_conn)
 
-# Only start the in-process worker thread when explicitly enabled — keeps
-# local docker-compose (which runs a dedicated worker container) from
-# accidentally running two workers competing for the same jobs.
 RUN_WORKER_IN_PROCESS = os.environ.get("RUN_WORKER_IN_PROCESS", "false").lower() == "true"
 
 
 def _start_worker_thread():
-    """Run an RQ worker on a background thread inside this same process.
-
-    Uses RQ's SimpleWorker (not the default fork-based Worker) since
-    threads can't fork — SimpleWorker runs jobs in-thread instead of in a
-    forked child process. Fine for a low-volume demo deployment; a forked
-    Worker would be preferred at higher throughput.
-    """
+    """Run an RQ worker on a background thread inside this same process."""
     worker_conn = redis.Redis(
         host=os.environ.get("REDIS_HOST", "localhost"),
         port=int(os.environ.get("REDIS_PORT", 6379)),
@@ -98,17 +93,13 @@ async def health():
 
 @app.post("/events/payment-failed")
 async def payment_failed(event: FailedPaymentEvent):
-    """Receive a failed-payment event and queue a recovery job.
-
-    Deduplicates on transaction_id so retried webhook deliveries don't
-    trigger duplicate recovery messages to the same customer.
-    """
+    """Receive a failed-payment event and queue a recovery job."""
     dedup_key = f"recoverai:queued:{event.transaction_id}"
     if redis_conn.get(dedup_key):
         print(f"[webhook] Duplicate delivery ignored: {event.transaction_id}")
         return {"status": "duplicate", "transaction_id": event.transaction_id}
 
-    redis_conn.setex(dedup_key, 600, "queued")  # expires in 10 minutes
+    redis_conn.setex(dedup_key, 600, "queued")
 
     job = recovery_queue.enqueue(
         run_recovery_job,
