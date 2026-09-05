@@ -33,6 +33,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from rq import Queue, Worker
 from rq.worker import SimpleWorker
+from rq.timeouts import TimerDeathPenalty
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
@@ -59,11 +60,12 @@ RUN_WORKER_IN_PROCESS = os.environ.get("RUN_WORKER_IN_PROCESS", "false").lower()
 
 
 
-
 class ThreadSafeWorker(SimpleWorker):
     def _install_signal_handlers(self):
         # Skip signal handling — not supported outside the main thread
         pass
+
+    death_penalty_class = TimerDeathPenalty
 
 
 def _start_worker_thread():
@@ -143,7 +145,7 @@ async def job_status(job_id: str):
             "status": job.get_status(),
             "created_at": str(job.created_at),
             "ended_at": str(job.ended_at) if job.ended_at else None,
-            "result": job.result,"exc_info": job.exc_info,
+            "result": job.result,
         }
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Job not found: {str(e)}")
