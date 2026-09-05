@@ -45,7 +45,14 @@ redis_conn = redis.Redis(
     password=os.environ.get("REDIS_PASSWORD") or None,
     decode_responses=True,
 )
-recovery_queue = Queue("recoveries", connection=redis_conn)
+
+rq_redis_conn = redis.Redis(
+    host=os.environ.get("REDIS_HOST", "localhost"),
+    port=int(os.environ.get("REDIS_PORT", 6379)),
+    password=os.environ.get("REDIS_PASSWORD") or None,
+    decode_responses=False,
+)
+recovery_queue = Queue("recoveries", connection=rq_redis_conn)
 
 RUN_WORKER_IN_PROCESS = os.environ.get("RUN_WORKER_IN_PROCESS", "false").lower() == "true"
 
@@ -56,7 +63,7 @@ def _start_worker_thread():
         host=os.environ.get("REDIS_HOST", "localhost"),
         port=int(os.environ.get("REDIS_PORT", 6379)),
         password=os.environ.get("REDIS_PASSWORD") or None,
-        decode_responses=True,
+        decode_responses=False,
     )
     queue = Queue("recoveries", connection=worker_conn)
     worker = Worker([queue], connection=worker_conn)
@@ -121,7 +128,7 @@ async def job_status(job_id: str):
     """Check the status of a queued recovery job."""
     from rq.job import Job
     try:
-        job = Job.fetch(job_id, connection=redis_conn)
+        job = Job.fetch(job_id, connection=rq_redis_conn)
         return {
             "job_id": job_id,
             "status": job.get_status(),
@@ -129,5 +136,5 @@ async def job_status(job_id: str):
             "ended_at": str(job.ended_at) if job.ended_at else None,
             "result": job.result,
         }
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Job not found: {str(e)}")
