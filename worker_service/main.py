@@ -60,6 +60,12 @@ RUN_WORKER_IN_PROCESS = os.environ.get("RUN_WORKER_IN_PROCESS", "false").lower()
 
 
 
+class ThreadSafeWorker(SimpleWorker):
+    def _install_signal_handlers(self):
+        # Skip signal handling — not supported outside the main thread
+        pass
+
+
 def _start_worker_thread():
     """Run an RQ worker on a background thread inside this same process."""
     worker_conn = redis.Redis(
@@ -69,7 +75,7 @@ def _start_worker_thread():
         decode_responses=False,
     )
     queue = Queue("recoveries", connection=worker_conn)
-    worker = SimpleWorker([queue], connection=worker_conn)
+    worker = ThreadSafeWorker([queue], connection=worker_conn)
     worker.work(with_scheduler=False, burst=False)
 
 
