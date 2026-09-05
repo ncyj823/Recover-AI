@@ -5,7 +5,7 @@
 > Built for the **Razorpay Buildathon 2026**
 
 🔗 **Live demo:** [https://recover-ai-svnk.onrender.com](https://recover-ai-svnk.onrender.com)
-🎥 **Demo video:** _[add link once recorded]_
+🎥 **Demo video:** https://drive.google.com/file/d/1hS3M1uC9-KgEl0OUUqeM7E5puaZSYMSh/view?usp=sharing
 
 ---
 
