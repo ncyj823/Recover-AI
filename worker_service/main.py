@@ -143,7 +143,7 @@ async def job_status(job_id: str):
             "status": job.get_status(),
             "created_at": str(job.created_at),
             "ended_at": str(job.ended_at) if job.ended_at else None,
-            "result": job.result,
+            "result": job.result,"exc_info": job.exc_info,
         }
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Job not found: {str(e)}")
