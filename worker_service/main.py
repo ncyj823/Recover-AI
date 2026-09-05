@@ -25,8 +25,6 @@ from rq import Queue
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from worker import run_recovery_job
-
 app = FastAPI(title="RecoverAI Webhook Service")
 
 redis_conn = redis.Redis(
@@ -72,7 +70,7 @@ async def payment_failed(event: FailedPaymentEvent):
     redis_conn.setex(dedup_key, 600, "queued")  # expires in 10 minutes
 
     job = recovery_queue.enqueue(
-        run_recovery_job,
+        "worker_service.worker.run_recovery_job",
         event.model_dump(),
         job_timeout=120,
     )

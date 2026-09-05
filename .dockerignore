@@ -1,0 +1,49 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+dist
+build
+.pytest_cache
+.coverage
+htmlcov
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project-specific
+audit_log.jsonl
+reports/
+recovery_pipeline/__pycache__/
+action_mcp/__pycache__/
+worker_service/__pycache__/
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.circleci
+
+# Docker
+.dockerignore
+Dockerfile
+
+# Node (for MCP inspector dev)
+node_modules
