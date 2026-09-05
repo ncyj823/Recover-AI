@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from rq import Queue, Worker
+from rq.worker import SimpleWorker
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
@@ -57,6 +58,8 @@ recovery_queue = Queue("recoveries", connection=rq_redis_conn)
 RUN_WORKER_IN_PROCESS = os.environ.get("RUN_WORKER_IN_PROCESS", "false").lower() == "true"
 
 
+
+
 def _start_worker_thread():
     """Run an RQ worker on a background thread inside this same process."""
     worker_conn = redis.Redis(
@@ -66,8 +69,8 @@ def _start_worker_thread():
         decode_responses=False,
     )
     queue = Queue("recoveries", connection=worker_conn)
-    worker = Worker([queue], connection=worker_conn)
-    worker.work(with_scheduler=False)
+    worker = SimpleWorker([queue], connection=worker_conn)
+    worker.work(with_scheduler=False, burst=False)
 
 
 @app.on_event("startup")
