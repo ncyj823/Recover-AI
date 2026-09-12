@@ -332,6 +332,7 @@ document.getElementById('txnForm').addEventListener('submit', async (ev) => {
 
 function renderResult(r) {
   const resultEl = document.getElementById('result');
+  if (r && r.action_result) { r = r.action_result; }
   if (!r) { resultEl.innerHTML = '<div class="empty">No result yet.</div>'; return; }
   const badgeClass = r.status === 'sent' ? 'sent' : (r.status === 'skipped' ? 'skipped' : 'pending');
   let rows = `<div class="row"><span class="k">Status</span><span class="badge ${badgeClass}">${r.status || 'unknown'}</span></div>`;
