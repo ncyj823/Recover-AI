@@ -259,12 +259,21 @@ async function loadFeed() {
       return;
     }
     feed.className = '';
-    feed.innerHTML = data.entries.map(e => `
+    feed.innerHTML = data.entries.map(e => {
+      let content = e.summary || e.reason;
+      if (!content) {
+        const jsonStr = JSON.stringify(e);
+        content = jsonStr.length > 120 ? jsonStr.slice(0, 120) + '...' : jsonStr;
+        // Or better, let's pretty-print the JSON and make it scrollable
+        content = `<pre style="margin: 6px 0 0; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 4px; overflow-x: auto; font-size: 11px; color: var(--muted);">${JSON.stringify(e, null, 2)}</pre>`;
+      }
+      return `
       <div class="feed-item">
         <span class="tag">${e.event}</span> · <span class="txn">${e.transaction_id || ''}</span><br>
-        ${e.summary || e.reason || JSON.stringify(e).slice(0, 120)}
+        ${content}
       </div>
-    `).join('');
+      `;
+    }).join('');
   } catch (e) { /* silent */ }
 }
 loadFeed();
