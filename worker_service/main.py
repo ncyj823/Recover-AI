@@ -293,6 +293,21 @@ document.getElementById('txnForm').addEventListener('submit', async (ev) => {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
+    
+    if (data.status === 'duplicate') {
+      btn.disabled = false;
+      btn.textContent = 'Run Recovery Agent';
+      resultEl.innerHTML = '<div class="empty">Error: This transaction ID was already processed. Please change it to try again.</div>';
+      return;
+    }
+    
+    if (!data.job_id) {
+      btn.disabled = false;
+      btn.textContent = 'Run Recovery Agent';
+      resultEl.innerHTML = '<div class="empty">Error: Failed to queue job.</div>';
+      return;
+    }
+
     btn.textContent = 'Processing...';
 
     let attempts = 0;
