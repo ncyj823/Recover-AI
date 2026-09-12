@@ -35,8 +35,8 @@ from rq import Queue, Worker
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from worker import run_recovery_job
+# pyrefly: ignore [missing-import]
 import audit
-
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
@@ -53,7 +53,6 @@ redis_conn = redis.Redis(
     host=os.environ.get("REDIS_HOST", "localhost"),
     port=int(os.environ.get("REDIS_PORT", 6379)),
     password=os.environ.get("REDIS_PASSWORD") or None,
-    decode_responses=True,
 )
 recovery_queue = Queue("recoveries", connection=redis_conn)
 
@@ -65,7 +64,6 @@ def _start_worker_thread():
         host=os.environ.get("REDIS_HOST", "localhost"),
         port=int(os.environ.get("REDIS_PORT", 6379)),
         password=os.environ.get("REDIS_PASSWORD") or None,
-        decode_responses=True,
     )
     queue = Queue("recoveries", connection=worker_conn)
     worker = Worker([queue], connection=worker_conn)
