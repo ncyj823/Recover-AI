@@ -2,13 +2,6 @@
 
 **Multi-agent payment-recovery system for Razorpay** — automatically diagnoses failed transactions, selects the optimal recovery channel, and sends compliant recovery nudges with bounded discount offers.
 
-> Built for the **Razorpay Buildathon 2026**
-
-🔗 **Live demo:** [https://recover-ai-svnk.onrender.com](https://recover-ai-svnk.onrender.com)
-🎥 **Demo video:** https://drive.google.com/file/d/1hS3M1uC9-KgEl0OUUqeM7E5puaZSYMSh/view?usp=sharing
-
----
-
 ## The Problem
 
 Every day, thousands of payments fail — timeouts, insufficient funds, bank declines, UPI glitches. Most merchants have no smart, immediate response to this. A customer who hits a failed payment often just leaves. That's silent, invisible revenue loss, happening at scale, with no automated system trying to win the customer back in the moment it matters most.
